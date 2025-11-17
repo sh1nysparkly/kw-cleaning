@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Keyword Merger Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Add SheetJS library for XLSX support -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .spinner {
+            border-top-color: #3498db;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div id="app-wrapper">
+        <div class="container mx-auto p-4 md:p-8 max-w-3xl">
+            <div class="bg-white rounded-2xl shadow-lg p-6 md:p-10">
+                <header class="text-center mb-8">
+                    <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Keyword Merger Tool</h1>
+                    <p class="text-gray-600 mt-2">Combine multiple keyword export files into a single master file.</p>
+                </header>
+
+                <main>
+                    <div class="space-y-6">
+                        <div>
+                            <label for="file-upload" class="block text-lg font-semibold text-gray-700 mb-2">1. Upload Your Files</label>
+                            <div id="drop-zone" class="flex justify-center items-center w-full px-6 py-10 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 transition-colors duration-300 cursor-pointer bg-gray-50">
+                                <div class="text-center">
+                                    <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                                        <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                    </svg>
+                                    <p class="mt-2 text-sm text-gray-600">
+                                        <span class="font-medium text-blue-600">Click to upload</span> or drag and drop
+                                    </p>
+                                    <p class="text-xs text-gray-500 mt-1">.xlsx, .csv, or .tsv files</p>
+                                    <input id="file-upload" name="files[]" type="file" class="sr-only" multiple accept=".csv,.tsv,.txt,.xlsx">
+                                </div>
+                            </div>
+                            <!-- File list will be built here -->
+                            <div id="file-list" class="mt-4 text-sm text-gray-700 space-y-2"></div>
+                        </div>
+
+                        <div>
+                            <button id="merge-btn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-300 ease-in-out disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center space-x-2" disabled>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
+                                    <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1zM6 15a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1z" />
+                                </svg>
+                                <span>Merge and Combine</span>
+                            </button>
+                        </div>
+
+                        <div id="status" class="text-center"></div>
+                        <div id="download-area" class="hidden text-center">
+                            <h3 class="text-lg font-semibold text-gray-700 mb-2">3. Download Your Merged File</h3>
+                            <button id="download-btn" class="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all duration-300 ease-in-out flex items-center justify-center space-x-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                   <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                                <span>Download Merged.xlsx</span>
+                            </button>
+                        </div>
+                    </div>
+                </main>
+            </div>
+            <footer class="text-center mt-6 text-sm text-gray-500">
+                <p>&copy; 2025 Keyword Merger Tool. All Rights Reserved.</p>
+            </footer>
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const dropZone = document.getElementById('drop-zone');
+            const fileUpload = document.getElementById('file-upload');
+            const fileList = document.getElementById('file-list');
+            const mergeBtn = document.getElementById('merge-btn');
+            const statusEl = document.getElementById('status');
+            const downloadArea = document.getElementById('download-area');
+            const downloadBtn = document.getElementById('download-btn');
+
+            let filesToProcess = []; // This array will now persist
+            let mergedDataForExport = []; 
+
+            // --- Smart Parser (Handles CSV, TSV, XLSX) ---
+            function parseFile(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    const fileExtension = file.name.split('.').pop().toLowerCase();
+
+                    if (fileExtension === 'xlsx') {
+                        // --- XLSX Parsing Logic ---
+                        reader.onload = (event) => {
+                            try {
+                                const data = event.target.result;
+                                const workbook = XLSX.read(data, { type: 'array' });
+                                const sheetName = workbook.SheetNames[0];
+                                const worksheet = workbook.Sheets[sheetName];
+                                
+                                const allRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                                if (allRows.length === 0) {
+                                    return resolve({ data: [], meta: { fields: [] } });
+                                }
+
+                                let headerRowIndex = allRows.findIndex(row => 
+                                    row.length > 0 && String(row[0]).toLowerCase().trim() === 'keyword'
+                                );
+
+                                let headers = [];
+                                let jsonData = [];
+
+                                if (headerRowIndex !== -1) {
+                                    headers = allRows[headerRowIndex].map(h => String(h).trim());
+                                    const dataRows = allRows.slice(headerRowIndex + 1);
+
+                                    jsonData = dataRows.map(row => {
+                                        const rowObject = {};
+                                        headers.forEach((header, index) => {
+                                            rowObject[String(header)] = row[index] || '';
+                                        });
+                                        return rowObject;
+                                    }).filter(row => row.Keyword);
+                                    
+                                } else {
+                                    headers = (allRows[0] || []).map(h => String(h).trim());
+                                    jsonData = XLSX.utils.sheet_to_json(worksheet);
+                                }
+
+                                resolve({ data: jsonData, meta: { fields: headers } });
+                            } catch (error) {
+                                reject(error);
+                            }
+                        };
+                        reader.onerror = (error) => reject(error);
+                        reader.readAsArrayBuffer(file);
+                    } else {
+                        // --- CSV/TSV Parsing Logic ---
+                        reader.onload = (event) => {
+                            try {
+                                const text = event.target.result;
+                                const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+
+                                if (lines.length === 0) {
+                                    return resolve({ data: [], meta: { fields: [] } });
+                                }
+                                
+                                const delimiter = text.includes('\t') ? '\t' : ',';
+                                const headers = lines[0].split(delimiter).map(h => h.replace(/"/g, '').trim());
+                                const data = [];
+
+                                for (let i = 1; i < lines.length; i++) {
+                                    const values = lines[i].split(delimiter).map(v => v.replace(/"/g, '').trim());
+                                    if (values.length === headers.length) {
+                                        const rowObject = {};
+                                        headers.forEach((header, index) => {
+                                            rowObject[header] = values[index] || '';
+                                        });
+                                        data.push(rowObject);
+                                    }
+                                }
+                                resolve({ data, meta: { fields: headers } });
+                            } catch (error) {
+                                reject(error);
+                            }
+                        };
+                        reader.onerror = (error) => reject(error);
+                        reader.readAsText(file);
+                    }
+                });
+            }
+
+            // --- New Drag and Drop / File Handling Logic ---
+            dropZone.addEventListener('click', () => fileUpload.click());
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('border-blue-500', 'bg-blue-50');
+            });
+            dropZone.addEventListener('dragleave', () => dropZone.classList.remove('border-blue-500', 'bg-blue-50'));
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+                if (e.dataTransfer.files.length) {
+                    addFiles(Array.from(e.dataTransfer.files));
+                    updateFileListUI();
+                }
+            });
+            
+            fileUpload.addEventListener('change', () => {
+                addFiles(Array.from(fileUpload.files));
+                updateFileListUI();
+            });
+
+            function addFiles(newFiles) {
+                newFiles.forEach(newFile => {
+                    // Check for duplicates by name and size before adding
+                    if (!filesToProcess.some(existingFile => existingFile.name === newFile.name && existingFile.size === newFile.size)) {
+                        filesToProcess.push(newFile);
+                    }
+                });
+                // Clear the file input to allow selecting the same file again if removed
+                fileUpload.value = ''; 
+            }
+
+            function updateFileListUI() {
+                fileList.innerHTML = ''; // Clear the list before rebuilding
+                if (filesToProcess.length > 0) {
+                    const list = document.createElement('ul');
+                    list.className = 'space-y-1';
+                    filesToProcess.forEach((file, index) => {
+                        const li = document.createElement('li');
+                        li.className = 'flex justify-between items-center group bg-gray-50 p-2 rounded-md';
+                        li.innerHTML = `
+                            <span class="flex items-center space-x-2 text-gray-800">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                  <path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                </svg>
+                                <span>${file.name} <span class="text-gray-500">(${(file.size / 1024).toFixed(2)} KB)</span></span>
+                            </span>
+                            <button data-index="${index}" class="remove-file-btn text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                        `;
+                        list.appendChild(li);
+                    });
+                    fileList.appendChild(list);
+                    mergeBtn.disabled = filesToProcess.length < 2;
+                } else {
+                    mergeBtn.disabled = true;
+                }
+            }
+
+            // Event delegation for remove buttons
+            fileList.addEventListener('click', (e) => {
+                const removeBtn = e.target.closest('.remove-file-btn');
+                if (removeBtn) {
+                    const indexToRemove = parseInt(removeBtn.dataset.index, 10);
+                    filesToProcess.splice(indexToRemove, 1); // Remove from master list
+                    updateFileListUI(); // Re-render the UI
+                }
+            });
+            
+            // --- Merging Logic ---
+            mergeBtn.addEventListener('click', async () => {
+                if (filesToProcess.length < 2) {
+                    showStatus('Please select at least two files.', 'error');
+                    return;
+                }
+
+                showStatus('Processing files...', 'loading');
+                downloadArea.classList.add('hidden');
+                mergeBtn.disabled = true;
+                mergedDataForExport = []; // Clear previous results
+
+                try {
+                    const parsedData = await Promise.all(filesToProcess.map(file => parseFile(file)));
+                    
+                    let keywordColumn = null;
+                    for (const result of parsedData) {
+                        keywordColumn = findKeywordColumn(result.meta.fields);
+                        if (keywordColumn) break;
+                    }
+
+                    if (!keywordColumn) {
+                        showStatus('Error: Could not find a "Keyword" or "Query" column in any file.', 'error');
+                        mergeBtn.disabled = false;
+                        return;
+                    }
+
+                    mergedDataForExport = merge(parsedData, keywordColumn); // Store data for download
+                    
+                    showStatus(`Successfully merged ${mergedDataForExport.length} unique keywords from ${filesToProcess.length} files.`, 'success');
+                    downloadArea.classList.remove('hidden');
+
+                } catch (error) {
+                    console.error('Merging Error:', error);
+                    showStatus(`An error occurred: ${error.message}`, 'error');
+                } finally {
+                    mergeBtn.disabled = false;
+                }
+            });
+
+            function findKeywordColumn(headers) {
+                 if (!headers) return null;
+                 const lowerCaseHeaders = headers.map(h => String(h).toLowerCase().trim());
+                 let keywordIndex = lowerCaseHeaders.indexOf('keyword');
+                 if (keywordIndex === -1) {
+                    keywordIndex = lowerCaseHeaders.indexOf('query');
+                 }
+                 if (keywordIndex === -1 && lowerCaseHeaders[0] === 'keyword') {
+                     keywordIndex = 0;
+                 }
+                 return keywordIndex > -1 ? headers[keywordIndex] : null;
+            }
+
+            function normalizeHeader(header) {
+                const lowerHeader = String(header).toLowerCase().trim();
+                
+                // Aliases
+                if (lowerHeader === 'query') return 'Keyword';
+                if (lowerHeader === 'top query') return 'Keyword';
+                
+                if (lowerHeader === 'search volume') return 'Volume';
+                if (lowerHeader === 'monthly search volume') return 'Volume';
+                if (lowerHeader === 'avg. monthly searches') return 'Volume';
+
+                if (lowerHeader === 'difficulty') return 'KD';
+
+                if (lowerHeader === 'competition') return 'Competition';
+
+                if (lowerHeader === 'current position') return 'Position';
+                if (lowerHeader === 'position') return 'Position';
+                if (lowerHeader.endsWith(' rank')) return 'Position'; // Catches "October 2025 Rank"
+
+
+                // Standardize casing for consistency
+                if (lowerHeader === 'keyword') return 'Keyword';
+                if (lowerHeader === 'volume') return 'Volume';
+                if (lowerHeader === 'kd') return 'KD';
+                if (lowerHeader === 'cpc') return 'CPC';
+                if (lowerHeader === 'cps') return 'CPS';
+                if (lowerHeader === 'competition') return 'Competition';
+                if (lowerHeader === 'position') return 'Position';
+                
+                return header; // Return original if no match
+            }
+
+            // Define SERP feature columns from Conductor
+            const conductorSerpColumns = [
+                'AI Overview', 'Answer Box', 'Carousel', 'Image', 'Jobs', 
+                'Local', 'News', 'People Also Ask', 'Product', 'Twitter', 
+                'Video', 'Video Carousel'
+            ];
+            
+            // Define irrelevant columns to always remove
+            const irrelevantColumns = ['Jobs', 'News', 'Twitter'];
+
+            function merge(parsedResults, keywordColumn) {
+                const keywordMap = new Map();
+                const allHeaders = new Set();
+                const intentTypes = ['Local', 'Navigational', 'Informational', 'Commercial', 'Transactional'];
+                const numericMetrics = ['Volume', 'KD', 'Competition', 'CPC', 'CPS', 'Position', 'Clicks', 'Impressions'];
+
+                parsedResults.forEach(result => {
+                    result.data.forEach(row => {
+                        const normalizedRow = {};
+                        const intents = new Set();
+                        const allFeatures = new Set();
+                        const ownedFeatures = new Set();
+
+                        // Normalize headers and handle aliasing
+                        for (let [key, value] of Object.entries(row)) {
+                            const normalizedKey = normalizeHeader(key);
+                            
+                            // Strip commas from all potential numeric fields
+                            if (typeof value === 'string' && numericMetrics.includes(normalizedKey)) {
+                                value = value.replace(/,/g, '');
+                            }
+                            normalizedRow[normalizedKey] = value;
+                        }
+
+                        // --- SERP Feature Normalization ---
+                        if (normalizedRow['SERP Features']) {
+                            String(normalizedRow['SERP Features']).split(',').forEach(f => allFeatures.add(f.trim()));
+                        }
+                        if (normalizedRow['Current URL inside']) {
+                            String(normalizedRow['Current URL inside']).split(',').forEach(f => ownedFeatures.add(f.trim()));
+                        }
+                        conductorSerpColumns.forEach(featureName => {
+                            if (row[featureName]) {
+                                const val = String(row[featureName]).toLowerCase().trim();
+                                if (val === 'appears' || val === 'owned' || val === 'not owned') {
+                                    allFeatures.add(featureName);
+                                }
+                                if (val === 'owned') {
+                                    ownedFeatures.add(featureName);
+                                }
+                            }
+                        });
+                        if (allFeatures.size > 0) {
+                            irrelevantColumns.forEach(col => allFeatures.delete(col));
+                            normalizedRow['SERP Features (All)'] = [...allFeatures].sort().join(', ');
+                        }
+                        if (ownedFeatures.size > 0) {
+                             irrelevantColumns.forEach(col => ownedFeatures.delete(col));
+                            normalizedRow['SERP Features (Owned)'] = [...ownedFeatures].sort().join(', ');
+                        }
+
+                        // --- Intent Standardization ---
+                        if (normalizedRow['Intents']) {
+                            String(normalizedRow['Intents']).split(',').forEach(intent => {
+                                if(intent.trim()) intents.add(intent.trim());
+                            });
+                        }
+                        intentTypes.forEach(intentType => {
+                            if (row[intentType] && String(row[intentType]).toLowerCase() === 'true') {
+                                intents.add(intentType);
+                            }
+                        });
+                        if (intents.size > 0) {
+                            normalizedRow['Intents'] = [...intents].sort().join(', ');
+                        }
+
+                        // --- Merge Row Data ---
+                        const keyword = normalizedRow['Keyword'];
+                        if (keyword) {
+                            if (!keywordMap.has(keyword)) {
+                                keywordMap.set(keyword, {});
+                            }
+                            const existingData = keywordMap.get(keyword);
+                            const mergedRow = { ...existingData };
+                            const metricsToConcat = ['Volume', 'KD', 'Competition', 'CPC', 'CPS', 'Position', 'Clicks', 'Impressions'];
+
+                            for(const [key, value] of Object.entries(normalizedRow)) {
+                                if (value === null || value === '' || value === undefined) {
+                                    if (!mergedRow.hasOwnProperty(key)) {
+                                        mergedRow[key] = ''; // Ensure key exists if new
+                                    }
+                                    continue; // Don't let empty values overwrite existing ones
+                                }
+
+                                const newValue = String(value);
+
+                                // Handle metrics: concatenate unique values
+                                if (metricsToConcat.includes(key)) {
+                                    if (mergedRow[key] && mergedRow[key] !== '') {
+                                        const existingValues = String(mergedRow[key]).split(', ');
+                                        if (!existingValues.includes(newValue)) {
+                                            // Sort numerically if possible
+                                            const allValues = [...existingValues, newValue];
+                                            allValues.sort((a, b) => {
+                                                const numA = parseFloat(a); // Commas are already stripped
+                                                const numB = parseFloat(b);
+                                                if (!isNaN(numA) && !isNaN(numB)) {
+                                                    return numA - numB;
+                                                }
+                                                return a.localeCompare(b); // fallback to string sort
+                                            });
+                                            mergedRow[key] = allValues.join(', ');
+                                        }
+                                    } else {
+                                        mergedRow[key] = newValue; // Set new value
+                                    }
+                                }
+                                // Handle string lists (Intents, SERP Features)
+                                else if (key === 'SERP Features (All)' || key === 'SERP Features (Owned)' || key === 'Intents') {
+                                     const newValues = String(value).split(', ');
+                                     const existingValues = (mergedRow[key] && mergedRow[key] !== '') ? String(mergedRow[key]).split(', ') : [];
+                                     const allValues = new Set([...existingValues, ...newValues]);
+                                     mergedRow[key] = [...allValues].filter(v => v.trim()).sort().join(', ');
+                                }
+                                // Default: "last one wins" (for things like URL, Parent Keyword, etc.)
+                                else {
+                                    mergedRow[key] = value;
+                                }
+                            }
+                            keywordMap.set(keyword, mergedRow);
+                        }
+                    });
+                });
+                
+                // Determine final headers after all merges
+                keywordMap.forEach(value => {
+                    Object.keys(value).forEach(header => allHeaders.add(header));
+                });
+
+                const columnsToRemove = [
+                    'Global traffic potential', 'Traffic potential', 'Global volume',
+                    '#', // Handle the column literally named #
+                    ...intentTypes, // Remove individual intent columns
+                    ...conductorSerpColumns, // Remove individual SERP feature columns
+                    'SERP Features', // Remove old Ahrefs column
+                    'Current URL inside', // Remove old Ahrefs column
+                    'Previous URL inside'
+                ];
+                
+                const finalHeaderArray = [...allHeaders].filter(h => {
+                    const lowerH = String(h).toLowerCase().trim();
+                    return !columnsToRemove.includes(h) && !columnsToRemove.includes(lowerH);
+                });
+
+                // --- Custom Column Sorting ---
+                const desiredOrder = ['Keyword', 'Volume', 'Competition', 'KD', 'CPC', 'CPS', 'Position'];
+                const orderedHeaders = [];
+                const remainingHeaders = [];
+                
+                // 1. Add desired headers in the specified order
+                desiredOrder.forEach(header => {
+                    if (finalHeaderArray.includes(header)) {
+                        orderedHeaders.push(header);
+                    }
+                });
+                
+                // 2. Add all other headers, sorted alphabetically
+                finalHeaderArray.forEach(header => {
+                    if (!orderedHeaders.includes(header)) {
+                        remainingHeaders.push(header);
+                    }
+                });
+                remainingHeaders.sort();
+
+                const sortedHeaderArray = [...orderedHeaders, ...remainingHeaders];
+                // --- End Custom Sorting ---
+
+                const finalData = [];
+                for (const data of keywordMap.values()) {
+                    const newRow = {};
+                    sortedHeaderArray.forEach(header => { // Use the fully sorted array
+                        newRow[header] = data[header] || '';
+                    });
+                    finalData.push(newRow);
+                }
+
+                return finalData;
+            }
+
+            // --- UI and Download ---
+            function showStatus(message, type) {
+                statusEl.innerHTML = '';
+                const statusDiv = document.createElement('div');
+                let icon = '';
+                let textColor = 'text-gray-700';
+
+                if (type === 'loading') {
+                    icon = '<div class="spinner h-5 w-5 rounded-full border-4 border-gray-200"></div>';
+                    textColor = 'text-blue-600';
+                } else if (type === 'success') {
+                    icon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>';
+                    textColor = 'text-green-600';
+                } else if (type === 'error') {
+                     icon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" /></svg>';
+                    textColor = 'text-red-600';
+                }
+
+                statusDiv.className = `flex items-center justify-center space-x-2 p-3 rounded-lg bg-gray-100 ${textColor}`;
+                statusDiv.innerHTML = `${icon}<span>${message}</span>`;
+                statusEl.appendChild(statusDiv);
+            }
+
+            // --- New Download Logic for XLSX ---
+            downloadBtn.addEventListener('click', () => {
+                if (mergedDataForExport.length > 0) {
+                    try {
+                        const ws = XLSX.utils.json_to_sheet(mergedDataForExport);
+                        const wb = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wb, ws, 'MergedKeywords');
+                        XLSX.writeFile(wb, 'merged_keywords.xlsx');
+                    } catch (error) {
+                        console.error('Download Error:', error);
+                        showStatus(`An error occurred during download: ${error.message}`, 'error');
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>

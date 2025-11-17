@@ -1,0 +1,605 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { Download, FileSpreadsheet, Filter, CheckCircle, AlertCircle, Upload, FileText } from 'lucide-react';
+
+// The 'xlsx' library is now loaded dynamically via a script tag to avoid bundling issues.
+// We will access it through the window.XLSX object once loaded.
+
+const CruiseKeywordCleaner = () => {
+  const [cleanedStats, setCleanedStats] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState(null);
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const [detectedFormat, setDetectedFormat] = useState(null);
+  const [customBrands, setCustomBrands] = useState('');
+  const [customNegativeKws, setCustomNegativeKws] = useState('');
+  const [keepNonABLocations, setKeepNonABLocations] = useState(false);
+  const fileInputRef = useRef(null);
+  const [xlsxReady, setXLSXReady] = useState(false);
+
+  useEffect(() => {
+    if (document.getElementById('xlsx-script') || window.XLSX) {
+      setXLSXReady(true);
+      return;
+    }
+    const script = document.createElement('script');
+    script.id = 'xlsx-script';
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    script.async = true;
+    script.onload = () => setXLSXReady(true);
+    script.onerror = () => {
+      setError('Error loading the Excel processing library. Please refresh the page.');
+      console.error('Failed to load the XLSX script.');
+    };
+    document.body.appendChild(script);
+  }, []);
+
+  const createRegexGroups = () => {
+    return {
+      'Competitor/OTA Brand': [
+        "\\b(?:expedia|costco|tripadvisor|reddit|exoticca|manulife|caasco|amex|american\\s+express|travelzoo|sunwing|redtag|selloff|sell\\s*off|travelocity|itravel|2000|nagel|transat|nagel|collette)\\b",
+      ],
+      'Term Misspelling': [
+        "\\b(?:carabbean|carabean|carabeen|carabian|carabien|carbean|carebean|careibean|caribben|caribbena|caribbian|caribbnea|caribe|caribean|caribeean|caribeen|caribian|carrabean|carrabien|carraibean|carrbean|carrebean|carrebian|carri|carrib|carribain|carribbean|carribea|carribeab|carribeam|carribean|carriben|carribena|carribesn|carribian|carribians|carribiean|carribien|carribran|carribwan|carridean|carrivean|carrobean|coribian|crribean|caribbeam|caribien)\\b",
+        "\\b(?:criuse|cruie|cruies|cruis|cruisline|cruiss|cruisw|cruize|cruose|cruse|crusie|crusies|crusise|crusises|cryise|cuise|curises|ruises|criise|criuze|croisiÃ¨re|Ã§ruise|cruise\\s+s|cruisz|crurise|cruuse|icruise|vruise|cruses)\\b",
+        "\\b(?:pincess|pricess|primcess|princeas|princeness|princeses|princesess|princesss|princss|priness|prinsess|prncess|proincess|proncess|ptinces|princes|princesse)\\b",
+        "\\b(?:royale|rpyal|seaboarn|varnival|voyage|seaborn)\\b",
+        "\\b(?:celbirty|celebarity|celeberty|celebraty|celebrith|celebrityy|celebriy|celerbirty|celerbrity|celibrity|cleberity|celeberity|celebritx|celebrty|celebr)\\b",
+        "\\b(?:cunnard|cunrad|curise|curnard|canard)\\b",
+        "\\b(?:noregian|norewgian|norvegian|norveian|norwe|norwegan|norwegian\\s+cr|norwegin|norweigan|norweigion|norweign|norwigin|nrwegian|norweigian)\\b",
+        "\\b(?:royal\\s+carr|royal\\s+caribbean\\s+cr)\\b",
+        "\\b(?:oceana|oceanÃ­a|oceinia|ceania|ocenia)\\b",
+        "\\b(?:vacantion|vicking|luxery|delas|amercia|ameria|americ|smerica|amerrica|americ\\b|holand|hollnd|hollande|hollende|hollan\\b|hoilland|hollaand|hiland|hollamd|hollanad|hurtigrutten|azamura|linblad|winstar|critic|waterwats)\\b",
+      ],
+      'Generic/Unwanted Term': [
+        "(?:\\s|\\.)?(?:com|ca)$", "\\b(?:log\\s*in|sign\\s*in|signon|login|signin|portal|website)\\b", "\\b(?:address|email|phone|contact\\s*service|number|etobicoke)\\b",
+        "\\b(?:vacations?\\s+to\\s+go|vacat(?:ion|ons|on)\\s+to\\s+go|acations?\\s+to\\s+go|voyages?\\s+to\\s+go|vacation\\s+go|from\\s+toronto|from\\s+montreal|from\\s+vancouver|from\\s+ottawa|from\\s+victoria|from\\s+winnipeg)\\b",
+        "\\b(?:www|career|careers|job|jobs|salary|work|wage|employ|for\\s*sale)\\b", "\\bagent(?:\\s+login|\\s+portal)?\\b", "\\b(?:llc|inc|corp|stock|corporation|incorporated|limited|ltd)\\b",
+        "\\b(?:videos?|picture?)\\b", "\\b(?:river\\s+cru|princess\\s+cru)\\b", "\\b(?:reviews?|forum|youtube|wikipedia|define|instagram|news|newsletter)\\b", "\\b(?:logo)\\b"
+      ],
+      'Foreign Language': [
+        "\\b(?:croisiere|croisieres?|croisière|глобус|jordanie|italie|francais|voyages?|franÃ§ais|français|prix|vendre|semaines|billet|soir|exotix|suisse|thailande|islande|tout|jours|francophone|angleterre|ecosse|exotique|traditours|circuit|tourisme)\\b", "\\s+(?:en|de|du|le|au|et|du|les)\\s+"
+      ],
+      'Items': [
+        "\\b(?:item|accessories?|accessory|magazine|case|jewel|trailer|bag|essentials|gift|luggage|must have|gift)\\s+"
+      ],
+      'Date/Symbol': [
+        "\\b20(?:17|18|19|20|21|22|23|24|25)\\b", "[.\\[\\]'âˆšÃ©ÃŸÃ§ô&блг√®Ä]"
+      ]
+    };
+  };
+
+  const checkAllPatterns = (keyword, regexGroups) => {
+    for (const reason in regexGroups) {
+      const pattern = new RegExp("(?:" + regexGroups[reason].join("|") + ")", "i");
+      if (pattern.test(keyword)) {
+        return reason;
+      }
+    }
+    return null;
+  };
+
+  const createAmaBrandedPattern = () => /\b(alberta motor|ama|amatravel)\b/i;
+
+  const createCustomNegativeKwPattern = (negativeKws) => {
+    if (!negativeKws || typeof negativeKws !== 'string' || negativeKws.trim() === '') return null;
+    try {
+      const terms = negativeKws.split(',').map(kw => kw.trim()).filter(kw => kw.length > 0).map(kw => kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      if (terms.length === 0) return null;
+      return new RegExp("\\b(" + terms.join("|") + ")\\b", "i");
+    } catch (error) {
+      console.error('Error creating custom negative keyword pattern:', error);
+      return null;
+    }
+  };
+
+  const createQuestionPattern = () => {
+    const questionWords = ["what", "how", "when", "where", "why", "who", "which", "whose", "will", "would", "should", "could", "can", "do", "does", "did", "are", "is", "was", "were", "have", "vs", "has", "had"];
+    return new RegExp("\\b(?:" + questionWords.join("|") + ")\\b", "i");
+  };
+
+  const createLocationExclusionPattern = () => {
+    const locationTerms = ["\\bbc\\b", "\\bsk\\b", "\\bns\\b", "\\bmb\\b", "\\bnl\\b", "\\bnb\\b", "\\byt\\b", "\\bqc\\b", "\\bpq\\b", "columbia", "bathurst", "afric", "manitoba", "quebec", "\\bus\\b", "halifax", "markham", "nova scotia", "hst", "pst", "qst", "california", "nwt", "barrie", "brampton", "british", "brunswick", "fredericton", "hamilton", "hartford", "kitchener", "michigan", "mile", "missisauga", "mkmk", "moncton", "montreal", "montréal", "newfoundland", "ontario", "ottawa", "pei", "plano", "prince", "regina", "sask", "yukon", "nova", "spokane", "state", "sudbury", "surrey", "delta", "toronto", "troy", "\\btx\\b", "vancouver", "waterloo", "windsor", "winnipeg", "sturgeon", "kelowna", "whitehorse", "yellowknife", "elmsdale", "kamloops", "mirabel", "thunder bay", "victoria", "janvier"];
+    return new RegExp("(?:" + locationTerms.join("|") + ")", "i");
+  };
+
+  const createAlbertaLocationPattern = () => {
+    const albertaTerms = ["\\bab\\b", "alberta", "near", "local", "edmonton", "calgary", "cochrane", "sundre", "hinton", "lethbridge", "camrose", "mcmurray", "grande", "prairie", "medicine", "deer", "sherwood", "albert\\b", "willow", "jasper", "banff", "kingsway", "sunridge", "manning", "crowfoot", "shawnessy", "airdrie", "leduc", "ponoka", "wetask", "hythe", "spruce", "okotok", "high river", "acheson", "rocky mountain", "canmore"];
+    return new RegExp("(?:" + albertaTerms.join("|") + ")", "i");
+  };
+
+  const createBrandFuzzyPattern = (brandNames) => {
+    if (!brandNames || typeof brandNames !== 'string' || brandNames.trim() === '') return null;
+    try {
+      const brands = brandNames.split(',').map(b => String(b || '').trim().toLowerCase()).filter(b => b.length > 0);
+      if (brands.length === 0) return null;
+      const fuzzyPatterns = brands.map(brand => {
+        const patterns = [];
+        if (brand.length < 4) return [];
+        if (brand.includes('tt')) patterns.push("\\b" + brand.replace('tt', 't') + "\\b");
+        if (brand.includes('mont')) patterns.push("\\b" + brand.replace('mont', 'mount') + "\\b");
+        return patterns;
+      }).flat();
+      const uniquePatterns = [...new Set(fuzzyPatterns)];
+      if (uniquePatterns.length === 0) return null;
+      return new RegExp("(?:" + uniquePatterns.join('|') + ")", "i");
+    } catch (error) {
+      console.error('Error creating brand fuzzy pattern:', error);
+      return null;
+    }
+  };
+
+  const createAudiencePatterns = () => {
+    return {
+        'Couples': new RegExp("\\b(?:couples?|romantic|romance|for two|partner|anniversar(?:y|ies)|wedding|honeymoon)\\b", "i"),
+        'Solo/Single': new RegExp("\\b(?:single|solo|alone)\\b", "i"),
+        'Families': new RegExp("\\b(?:famil(?:y|ies)|kids?|child(?:ren)?|bab(?:y|ies)|teens?|toddlers?|parents?)\\b", "i"),
+        'Seniors': new RegExp("\\b(?:seniors?|over\\s+\\d+)\\b", "i")
+    };
+  };
+
+  const determineAudience = (keyword, audiencePatterns) => {
+    if (audiencePatterns.Couples.test(keyword)) return 'Couples';
+    if (audiencePatterns.Families.test(keyword)) return 'Families';
+    if (audiencePatterns['Solo/Single'].test(keyword)) return 'Solo/Single';
+    if (audiencePatterns.Seniors.test(keyword)) return 'Seniors';
+    return '';
+  };
+  
+  const findMatchingBrand = (keyword, brandNames) => {
+    if (!brandNames || typeof brandNames !== 'string' || brandNames.trim() === '' || !keyword) {
+      return '';
+    }
+    try {
+      const brands = brandNames.split(',').map(b => b.trim()).filter(b => b.length > 0);
+      if (brands.length === 0) return '';
+
+      for (const brand of brands) {
+        const pattern = new RegExp("\\b" + brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "\\b", "i");
+        if (pattern.test(keyword)) {
+          return brand;
+        }
+      }
+      return '';
+    } catch (error) {
+      console.error('Error in findMatchingBrand:', error);
+      return '';
+    }
+  };
+
+  const isZeroVolume = (value) => {
+    if (value === null || value === undefined) return false;
+    const stringVal = String(value).trim().toLowerCase();
+    if (['', '0', '0.0', '0.00', '-', '--', 'n/a', 'na', 'null', 'none', 'no data', '< 10', '<10', '<1', 'low', 'very low'].includes(stringVal)) return true;
+    const numVal = parseFloat(stringVal);
+    return !isNaN(numVal) && numVal === 0;
+  };
+
+  const detectFileFormat = (jsonData) => {
+    const detectedInfo = { tool: 'Unknown', dataStartRow: 0, keywordColumn: null, searchVolumeColumn: null, pageUrlColumn: null, reportInfoRows: 0, headers: null, rankColumns: [] };
+    if (!Array.isArray(jsonData) || jsonData.length === 0) return detectedInfo;
+    const keywordHeaders = ['keyword', 'keywords', 'query', 'top queries'];
+    const volumeHeaders = ['search volume', 'volume', 'avg monthly searches', 'monthly searches', 'monthly search volume'];
+    const pageUrlHeaders = ['page url', 'url', 'landing page', 'top pages'];
+    
+    let headerRowIndex = -1;
+
+    for (let i = 0; i < Math.min(30, jsonData.length); i++) {
+      const row = jsonData[i];
+      if (!Array.isArray(row) || row.length < 2) continue;
+      
+      let keywordColFound = false;
+      let volumeColFound = false;
+      let otherHeadersFound = 0;
+      
+      row.forEach((cell) => {
+        if (!cell) return;
+        const cellStr = String(cell).toLowerCase().trim();
+        if (keywordHeaders.some(h => cellStr.includes(h))) keywordColFound = true;
+        if (volumeHeaders.some(h => cellStr.includes(h))) volumeColFound = true;
+        if (['rank', 'position', 'difficulty', 'kd', 'competition', 'url', 'page'].some(h => cellStr.includes(h))) otherHeadersFound++;
+      });
+      
+      if (keywordColFound && (volumeColFound || otherHeadersFound > 0)) {
+        headerRowIndex = i;
+        break;
+      }
+    }
+
+    if (headerRowIndex !== -1) {
+        detectedInfo.dataStartRow = headerRowIndex;
+        detectedInfo.reportInfoRows = headerRowIndex;
+        detectedInfo.headers = jsonData[headerRowIndex];
+        
+        detectedInfo.headers.forEach((cell, col) => {
+            if (!cell) return;
+            const cellStr = String(cell).toLowerCase().trim();
+            if (detectedInfo.keywordColumn === null && keywordHeaders.some(h => cellStr.includes(h))) detectedInfo.keywordColumn = col;
+            if (detectedInfo.searchVolumeColumn === null && volumeHeaders.some(h => cellStr.includes(h))) detectedInfo.searchVolumeColumn = col;
+            if (detectedInfo.pageUrlColumn === null && pageUrlHeaders.some(h => cellStr.includes(h))) detectedInfo.pageUrlColumn = col;
+            if (cellStr.includes('rank') && (cellStr.match(/\d{4}/) || cellStr.match(/jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i))) {
+                detectedInfo.rankColumns.push({ header: cell, index: col });
+            }
+        });
+    } else {
+        if (jsonData.length > 0) {
+            detectedInfo.headers = jsonData[0];
+            detectedInfo.dataStartRow = 0;
+            detectedInfo.reportInfoRows = 0;
+            detectedInfo.keywordColumn = 0;
+        }
+    }
+    return detectedInfo;
+  };
+
+  const handleFileUpload = async (event) => {
+    if (!xlsxReady || !window.XLSX) {
+        setError("Excel library is still loading. Please wait a moment and try again.");
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+    }
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+    setError(null);
+    setUploadedFile(file);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = window.XLSX.read(arrayBuffer);
+      const sheetName = workbook.SheetNames[0];
+      if (!sheetName) {
+        setError('No sheets found in the file');
+        return;
+      }
+      const sheet = workbook.Sheets[sheetName];
+      const jsonData = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+      const format = detectFileFormat(jsonData);
+      setDetectedFormat(format);
+    } catch (e) {
+      setError('Error reading file: ' + e.message);
+    }
+  };
+
+  const processUploadedFile = async () => {
+    if (!xlsxReady || !window.XLSX) {
+        setError("Excel library has not loaded. Please refresh and try again.");
+        return;
+    }
+    if (!uploadedFile || !detectedFormat || detectedFormat.keywordColumn === null) {
+      setError('No file or valid keyword column detected. Please upload a valid file.');
+      return;
+    }
+
+    setIsProcessing(true);
+    setError(null);
+
+    try {
+      const arrayBuffer = await uploadedFile.arrayBuffer();
+      const workbook = window.XLSX.read(arrayBuffer);
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const jsonData = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+
+      let reportInfo = jsonData.slice(0, detectedFormat.reportInfoRows);
+      let headers = [...(detectedFormat.headers || [])];
+      let dataRows = jsonData.slice(detectedFormat.dataStartRow + 1);
+
+      const columnsToRemove = ["modeled traffic", "change in traffic", "highest rank", "number of ranking keywords", "number of new keywords", "rank change", "customer's journey stage", "jobs", "news", "twitter"];
+      const originalIndicesToKeep = [];
+      const newHeaders = [];
+      headers.forEach((header, index) => {
+        if (!columnsToRemove.includes(String(header || '').toLowerCase().trim())) {
+          originalIndicesToKeep.push(index);
+          newHeaders.push(header);
+        }
+      });
+      headers = newHeaders;
+      dataRows = dataRows.map(row => originalIndicesToKeep.map(index => row[index]));
+
+      const getNewIndex = (originalIndex) => {
+          if (originalIndex === null) return -1;
+          const originalHeader = detectedFormat.headers[originalIndex];
+          return headers.findIndex(h => String(h).toLowerCase().trim() === String(originalHeader).toLowerCase().trim());
+      };
+
+      let keywordCol = getNewIndex(detectedFormat.keywordColumn);
+      let volumeCol = getNewIndex(detectedFormat.searchVolumeColumn);
+      let pageUrlCol = getNewIndex(detectedFormat.pageUrlColumn);
+      
+      if (pageUrlCol !== -1 && keywordCol !== -1) {
+          dataRows = dataRows.filter(row => !(String(row[pageUrlCol] || '').trim() !== '' && String(row[keywordCol] || '').trim() === ''));
+      }
+
+      if (keywordCol !== -1 && volumeCol !== -1 && volumeCol !== keywordCol + 1) {
+        const volHeader = headers.splice(volumeCol, 1)[0];
+        headers.splice(keywordCol + 1, 0, volHeader);
+        dataRows.forEach(row => {
+          const volData = row.splice(volumeCol, 1)[0];
+          row.splice(keywordCol + 1, 0, volData);
+        });
+        volumeCol = keywordCol + 1;
+      }
+
+      const rankColumns = detectedFormat.rankColumns.map(rc => ({ ...rc, newIndex: headers.findIndex(h => String(h).toLowerCase().trim() === String(rc.header).toLowerCase().trim()) })).filter(rc => rc.newIndex !== -1);
+      if (rankColumns.length >= 2) {
+          headers.push("Highest Rank");
+          dataRows.forEach(row => {
+              const ranks = rankColumns.map(rc => parseInt(row[rc.newIndex], 10)).filter(r => !isNaN(r) && r > 0);
+              row.push(ranks.length > 0 ? Math.min(...ranks) : '');
+          });
+      }
+
+      let finalHeaders = [...headers];
+      if (pageUrlCol !== -1) finalHeaders.push("Top KWs");
+      finalHeaders.push("AMA Branded", "Custom Brand Match", "Question", "Alberta Location");
+      if (keepNonABLocations) finalHeaders.push('Non-AB Location');
+      finalHeaders.push('Audience');
+      
+      const regexGroups = createRegexGroups();
+      const amaBrandedPattern = createAmaBrandedPattern();
+      const customNegativeKwPattern = createCustomNegativeKwPattern(customNegativeKws);
+      const questionPattern = createQuestionPattern();
+      const brandFuzzyPattern = createBrandFuzzyPattern(customBrands);
+      const locationExclusionPattern = createLocationExclusionPattern();
+      const albertaLocationPattern = createAlbertaLocationPattern();
+      const audiencePatterns = createAudiencePatterns();
+
+      const cleanRows = [];
+      const culledRows = [];
+      const debugStats = { regex: 0, zeroVol: 0, brandFuzzy: 0, location: 0, customNegative: 0, lowAmaRank: 0 };
+
+      const parseRank = (val) => {
+          const rankStr = String(val || '').toLowerCase();
+          if (rankStr.includes('did not rank')) return Infinity;
+          const num = parseInt(rankStr, 10);
+          return isNaN(num) || num <= 0 ? Infinity : num;
+      };
+
+      dataRows.forEach(row => {
+        const keyword = row[keywordCol];
+        const keywordStr = String(keyword || '').trim();
+
+        if (keywordStr === '') {
+            let blankRow = [...row];
+            if(pageUrlCol !== -1) blankRow.push('');
+            blankRow.push('', '', '', '');
+            if(keepNonABLocations) blankRow.push('');
+            blankRow.push(''); // Audience
+            cleanRows.push(blankRow);
+            return;
+        }
+
+        const searchVolume = volumeCol !== -1 ? row[volumeCol] : null;
+        let shouldFilter = false;
+        let culledReason = '';
+        
+        const hasAlbertaLocation = albertaLocationPattern.test(keywordStr);
+        const hasNonABLocation = locationExclusionPattern.test(keywordStr);
+        const matchedBrand = findMatchingBrand(keywordStr, customBrands);
+        const isFuzzyMatch = brandFuzzyPattern && brandFuzzyPattern.test(keywordStr);
+        const patternMatchReason = checkAllPatterns(keywordStr, regexGroups);
+
+        let isLowAmaRank = false;
+        if (pageUrlCol === 0 && rankColumns.length >= 2) {
+            const url = String(row[pageUrlCol] || '').toLowerCase();
+            if (url.includes('amatravel') || url.includes('ama.ab.ca') || url.includes('amainsider')) {
+                const rank1 = parseRank(row[rankColumns[0].newIndex]);
+                const rank2 = parseRank(row[rankColumns[1].newIndex]);
+                if ((rank1 > 22 && rank2 > 22) || (rank1 > 22 && rank2 === Infinity) || (rank1 === Infinity && rank2 > 22)) {
+                    isLowAmaRank = true;
+                }
+            }
+        }
+        
+        if (isLowAmaRank) {
+            shouldFilter = true;
+            culledReason = 'Low AMA Rank';
+            debugStats.lowAmaRank++;
+        } else if (customNegativeKwPattern && customNegativeKwPattern.test(keywordStr)) {
+            shouldFilter = true;
+            culledReason = 'Custom Negative Keyword';
+            debugStats.customNegative++;
+        } else if (!keepNonABLocations && hasNonABLocation && !hasAlbertaLocation) {
+          shouldFilter = true;
+          culledReason = 'Non-AB Location';
+          debugStats.location++;
+        } else if (isFuzzyMatch && matchedBrand === '') {
+            shouldFilter = true;
+            culledReason = 'Brand Misspelling';
+            debugStats.brandFuzzy++;
+        } else if (patternMatchReason) {
+          shouldFilter = true;
+          culledReason = patternMatchReason;
+          debugStats.regex++;
+        } else if (searchVolume !== null && isZeroVolume(searchVolume)) {
+          shouldFilter = true;
+          culledReason = 'Zero Volume';
+          debugStats.zeroVol++;
+        }
+        
+        let isTopKw = '';
+        if (pageUrlCol !== -1 && rankColumns.length >= 2) {
+            const rank1 = parseRank(row[rankColumns[0].newIndex]);
+            const rank2 = parseRank(row[rankColumns[1].newIndex]);
+            const isLowRank = (rank1 > 22 && rank2 > 22) || (rank1 > 22 && rank2 === Infinity) || (rank1 === Infinity && rank2 > 22);
+            isTopKw = !isLowRank ? 'TRUE' : 'FALSE';
+        }
+        
+        const isAmaBranded = amaBrandedPattern.test(keywordStr);
+        const isQuestion = questionPattern.test(keywordStr);
+        const audience = determineAudience(keywordStr, audiencePatterns);
+        
+        let enhancedRow = [...row];
+        if (pageUrlCol !== -1) enhancedRow.push(isTopKw);
+        enhancedRow.push(isAmaBranded ? 'TRUE' : 'FALSE', matchedBrand, isQuestion ? 'TRUE' : 'FALSE', hasAlbertaLocation ? 'TRUE' : 'FALSE');
+        if (keepNonABLocations) {
+            enhancedRow.push(hasNonABLocation ? 'TRUE' : 'FALSE');
+        }
+        enhancedRow.push(audience);
+
+        if (shouldFilter) {
+          culledRows.push([...enhancedRow, culledReason]);
+        } else {
+          cleanRows.push(enhancedRow);
+        }
+      });
+
+      setCleanedStats({
+        originalRows: dataRows.length,
+        cleanRows: cleanRows.length,
+        culledRows: culledRows.length,
+        percentageRemoved: dataRows.length > 0 ? ((culledRows.length / dataRows.length) * 100).toFixed(1) : '0',
+        zeroVolumeCount: debugStats.zeroVol,
+        brandFuzzyCount: debugStats.brandFuzzy,
+        regexCount: debugStats.regex,
+        locationCount: debugStats.location,
+        customNegativeCount: debugStats.customNegative,
+        lowAmaRankCount: debugStats.lowAmaRank,
+      });
+
+      reportInfo.push([]);
+      reportInfo.push(['--- Tool Settings ---']);
+      reportInfo.push(['Date Processed:', new Date().toLocaleString()]);
+      reportInfo.push(['Custom Brand Names:', customBrands]);
+      reportInfo.push(['Custom Negative Keywords:', customNegativeKws]);
+      reportInfo.push(['Keep Non-Alberta Locations:', keepNonABLocations ? 'TRUE' : 'FALSE']);
+
+      const newWorkbook = window.XLSX.utils.book_new();
+      const cleanedSheet = window.XLSX.utils.aoa_to_sheet([finalHeaders, ...cleanRows]);
+      window.XLSX.utils.book_append_sheet(newWorkbook, cleanedSheet, 'Clean Data');
+
+      const culledHeaders = [...finalHeaders, 'Culled Reason'];
+      const culledSheet = window.XLSX.utils.aoa_to_sheet([culledHeaders, ...culledRows]);
+      window.XLSX.utils.book_append_sheet(newWorkbook, culledSheet, 'Culled Rows');
+      
+      if (reportInfo.length > 0) {
+        const reportSheet = window.XLSX.utils.aoa_to_sheet(reportInfo);
+        window.XLSX.utils.book_append_sheet(newWorkbook, reportSheet, 'Report Info');
+      }
+
+      const buffer = window.XLSX.write(newWorkbook, { type: 'array', bookType: 'xlsx' });
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      const baseName = uploadedFile.name.replace(/\.[^/.]+$/, "");
+      link.download = `cleaned_${baseName}.xlsx`;
+
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+    } catch (e) {
+      setError('Error processing file: ' + e.message);
+      console.error(e);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const resetUpload = () => {
+    setUploadedFile(null);
+    setDetectedFormat(null);
+    setCleanedStats(null);
+    setCustomBrands('');
+    setCustomNegativeKws('');
+    setKeepNonABLocations(false);
+    setError(null);
+    if (fileInputRef?.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto p-6 bg-white font-sans">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Universal Keyword Data Cleaner</h1>
+        <p className="text-gray-600">Upload any keyword export file (XLSX, CSV) to automatically clean, filter, and enhance your data.</p>
+      </div>
+
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 mb-8">
+        <h2 className="text-xl font-semibold text-gray-900 mb-4">1. Upload File</h2>
+        {!xlsxReady && (<div className="text-center p-4 bg-blue-50 rounded-lg"><p className="text-blue-700 font-medium">Loading required libraries...</p></div>)}
+        {xlsxReady && !uploadedFile ? (
+          <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 transition-colors">
+            <Upload className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-600 mb-4">Drop your Excel or CSV file here or click to browse</p>
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="hidden" />
+            <button onClick={() => fileInputRef?.current?.click()} className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors">Choose File</button>
+          </div>
+        ) : null}
+        {uploadedFile && (
+          <div className="bg-white border border-gray-200 rounded-lg p-4 flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <FileSpreadsheet className="h-8 w-8 text-green-600" />
+              <div>
+                <p className="font-medium text-gray-900">{uploadedFile.name}</p>
+                <p className="text-sm text-gray-600">{(uploadedFile.size / 1024).toFixed(1)} KB</p>
+              </div>
+            </div>
+            <button onClick={resetUpload} className="text-sm text-gray-500 hover:text-red-600 font-medium transition-colors">Remove</button>
+          </div>
+        )}
+      </div>
+
+      {detectedFormat && (
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 mb-8">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">2. Configure Options</h2>
+          <div className="space-y-6">
+            <div>
+              <label htmlFor="customBrands" className="block text-sm font-medium text-gray-700 mb-1">Custom Brand Names (Optional)</label>
+              <input type="text" id="customBrands" value={customBrands} onChange={(e) => setCustomBrands(e.target.value)} placeholder="e.g., choice, marriott, fairmont, bonvoy" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+              <p className="text-xs text-gray-500 mt-1">Separated by commas. Protects brand keywords and removes misspellings.</p>
+            </div>
+            <div>
+              <label htmlFor="customNegativeKws" className="block text-sm font-medium text-gray-700 mb-1">Report-Specific Negative Keywords (Optional)</label>
+              <input type="text" id="customNegativeKws" value={customNegativeKws} onChange={(e) => setCustomNegativeKws(e.target.value)} placeholder="e.g., competitor name, unwanted term" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+              <p className="text-xs text-gray-500 mt-1">Separated by commas. Any keyword containing these terms will be culled.</p>
+            </div>
+            <div className="flex items-center">
+              <input type="checkbox" id="keepNonABLocations" checked={keepNonABLocations} onChange={(e) => setKeepNonABLocations(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"/>
+              <label htmlFor="keepNonABLocations" className="ml-2 block text-sm font-medium text-gray-700">Keep Non-Alberta Location Keywords</label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {uploadedFile && detectedFormat && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
+          <h2 className="text-xl font-semibold text-blue-900 mb-4">3. Process & Download</h2>
+          <p className="text-blue-800 mb-4">Ready to clean your data. Click the button to process the file and download the cleaned version.</p>
+          <button onClick={processUploadedFile} disabled={isProcessing || !xlsxReady} className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-3 px-6 rounded-lg flex items-center justify-center space-x-2 transition-colors disabled:cursor-not-allowed">
+            <Download className="h-5 w-5" />
+            <span>{isProcessing ? 'Processing...' : 'Process & Download Cleaned File'}</span>
+          </button>
+        </div>
+      )}
+
+      {cleanedStats && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-6 mb-8">
+            <h2 className="text-xl font-semibold text-green-900 mb-4">Results Summary</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                <div><p className="text-2xl font-bold text-gray-700">{cleanedStats.originalRows.toLocaleString()}</p><p className="text-sm text-gray-600">Original Rows</p></div>
+                <div><p className="text-2xl font-bold text-green-700">{cleanedStats.cleanRows.toLocaleString()}</p><p className="text-sm text-green-600">Clean Rows</p></div>
+                <div><p className="text-2xl font-bold text-red-700">{cleanedStats.culledRows.toLocaleString()}</p><p className="text-sm text-red-600">{cleanedStats.percentageRemoved}% Removed</p></div>
+            </div>
+            <div className="border-t border-green-200 mt-4 pt-4 text-sm text-gray-700">
+                <p><strong>Culled Breakdown:</strong> {cleanedStats.lowAmaRankCount} (Low AMA Rank) · {cleanedStats.regexCount} (Pattern) · {cleanedStats.zeroVolumeCount} (Zero Volume) · {cleanedStats.brandFuzzyCount} (Brand Misspelling) · {cleanedStats.locationCount} (Location) · {cleanedStats.customNegativeCount} (Custom Negative)</p>
+            </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-2">
+          <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+          <div>
+            <h3 className="font-medium text-red-900">An Error Occurred</h3>
+            <p className="text-sm text-red-700">{error}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default CruiseKeywordCleaner;
